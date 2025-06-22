@@ -1,0 +1,51 @@
+{
+  "name": "creditrust-react",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "start": "react-scripts start",
+    "build": "react-scripts build",
+    "test": "react-scripts test",
+    "eject": "react-scripts eject"
+  },
+  "keywords": [
+    "defi",
+    "lending",
+    "creditrust",
+    "react",
+    "web3"
+  ],
+  "author": "CrediTrust Team",
+  "license": "MIT",
+  "description": "CrediTrust - Decentralized Autonomous Risk-Based Microcredit Protocol",
+  "homepage": ".",
+  "dependencies": {
+    "@rainbow-me/rainbowkit": "^2.2.8",
+    "@tanstack/react-query": "^5.81.2",
+    "@types/react": "^19.1.8",
+    "@types/react-dom": "^19.1.6",
+    "ethers": "^6.14.4",
+    "framer-motion": "^12.18.1",
+    "lucide-react": "^0.522.0",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0",
+    "react-hot-toast": "^2.5.2",
+    "react-router-dom": "^6.30.1",
+    "react-scripts": "^5.0.1",
+    "recharts": "^2.15.4",
+    "wagmi": "^2.15.6",
+    "web-vitals": "^5.0.3"
+  },
+  "browserslist": {
+    "production": [
+      ">0.2%",
+      "not dead",
+      "not op_mini all"
+    ],
+    "development": [
+      "last 1 chrome version",
+      "last 1 firefox version",
+      "last 1 safari version"
+    ]
+  }
+}
