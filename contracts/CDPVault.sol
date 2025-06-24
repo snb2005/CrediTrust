@@ -39,6 +39,8 @@ contract CDPVault is ReentrancyGuard, Ownable, VRFConsumerBaseV2 {
         address lender;
         uint256 stakedAmount;
         uint256 reputation;
+        uint256 accruedRewards; // Track accrued rewards
+        uint256 lastRewardUpdate; // Last time rewards were calculated
         bool isActive;
     }
 
@@ -67,6 +69,10 @@ contract CDPVault is ReentrancyGuard, Ownable, VRFConsumerBaseV2 {
     event CDPLiquidated(address indexed borrower, uint256 collateralAmount);
     event LenderAssigned(address indexed borrower, address indexed lender);
     event LenderStaked(address indexed lender, uint256 amount);
+    event LenderWithdrawn(address indexed lender, uint256 amount);
+    event RewardsCompounded(address indexed lender, uint256 amount);
+    event RewardsWithdrawn(address indexed lender, uint256 amount);
+    event CollateralAdded(address indexed borrower, uint256 additionalCollateral, uint256 newCollateralAmount);
 
     constructor(
         address _collateralToken,
@@ -273,14 +279,121 @@ contract CDPVault is ReentrancyGuard, Ownable, VRFConsumerBaseV2 {
                 lender: msg.sender,
                 stakedAmount: _amount,
                 reputation: 100, // Starting reputation
+                accruedRewards: 0,
+                lastRewardUpdate: block.timestamp,
                 isActive: true
             });
             activeLenders.push(msg.sender);
         } else {
+            // Update rewards before adding new amount
+            updateLenderRewards(msg.sender);
             lenderPools[msg.sender].stakedAmount = lenderPools[msg.sender].stakedAmount.add(_amount);
         }
         
         emit LenderStaked(msg.sender, _amount);
+    }
+
+    /**
+     * @dev Update lender rewards based on time elapsed and staked amount
+     * @param _lender Address of the lender
+     */
+    function updateLenderRewards(address _lender) internal {
+        LenderPool storage pool = lenderPools[_lender];
+        if (!pool.isActive || pool.stakedAmount == 0) return;
+        
+        uint256 timeElapsed = block.timestamp.sub(pool.lastRewardUpdate);
+        // Simplified reward calculation: 5% APY for lenders
+        uint256 annualReward = pool.stakedAmount.mul(500).div(10000); // 5% APY
+        uint256 accruedReward = annualReward.mul(timeElapsed).div(365 days);
+        
+        pool.accruedRewards = pool.accruedRewards.add(accruedReward);
+        pool.lastRewardUpdate = block.timestamp;
+    }
+    
+    /**
+     * @dev Withdraw staked amount and rewards
+     * @param _amount Amount to withdraw (0 to withdraw all)
+     */
+    function withdrawLender(uint256 _amount) external nonReentrant {
+        LenderPool storage pool = lenderPools[msg.sender];
+        require(pool.isActive, "No active lending position");
+        
+        // Update rewards before withdrawal
+        updateLenderRewards(msg.sender);
+        
+        uint256 totalAvailable = pool.stakedAmount.add(pool.accruedRewards);
+        uint256 withdrawAmount;
+        
+        if (_amount == 0) {
+            // Withdraw all
+            withdrawAmount = totalAvailable;
+            pool.stakedAmount = 0;
+            pool.accruedRewards = 0;
+            pool.isActive = false;
+            
+            // Remove from active lenders array
+            for (uint i = 0; i < activeLenders.length; i++) {
+                if (activeLenders[i] == msg.sender) {
+                    activeLenders[i] = activeLenders[activeLenders.length - 1];
+                    activeLenders.pop();
+                    break;
+                }
+            }
+        } else {
+            require(_amount <= totalAvailable, "Insufficient balance");
+            withdrawAmount = _amount;
+            
+            // Withdraw proportionally from staked amount and rewards
+            if (_amount <= pool.accruedRewards) {
+                pool.accruedRewards = pool.accruedRewards.sub(_amount);
+            } else {
+                uint256 remainingAmount = _amount.sub(pool.accruedRewards);
+                pool.accruedRewards = 0;
+                pool.stakedAmount = pool.stakedAmount.sub(remainingAmount);
+            }
+        }
+        
+        require(debtToken.transfer(msg.sender, withdrawAmount), "Withdrawal transfer failed");
+        emit LenderWithdrawn(msg.sender, withdrawAmount);
+    }
+    
+    /**
+     * @dev Compound accrued rewards back into staked amount
+     */
+    function compoundRewards() external nonReentrant {
+        LenderPool storage pool = lenderPools[msg.sender];
+        require(pool.isActive, "No active lending position");
+        
+        // Update rewards before compounding
+        updateLenderRewards(msg.sender);
+        
+        require(pool.accruedRewards > 0, "No rewards to compound");
+        
+        uint256 rewardsToCompound = pool.accruedRewards;
+        pool.stakedAmount = pool.stakedAmount.add(rewardsToCompound);
+        pool.accruedRewards = 0;
+        
+        emit RewardsCompounded(msg.sender, rewardsToCompound);
+    }
+
+    /**
+     * @dev Add additional collateral to existing CDP
+     * @param _additionalCollateral Amount of additional collateral to add
+     */
+    function addCollateral(uint256 _additionalCollateral) external nonReentrant {
+        CDP storage cdp = cdps[msg.sender];
+        require(cdp.isActive, "No active CDP");
+        require(_additionalCollateral > 0, "Additional collateral must be greater than 0");
+        
+        // Transfer additional collateral
+        require(collateralToken.transferFrom(msg.sender, address(this), _additionalCollateral), 
+                "Collateral transfer failed");
+        
+        // Update CDP collateral
+        cdp.collateralAmount = cdp.collateralAmount.add(_additionalCollateral);
+        totalCollateral = totalCollateral.add(_additionalCollateral);
+        
+        emit CollateralAdded(msg.sender, _additionalCollateral, cdp.collateralAmount);
     }
 
     /**
@@ -349,6 +462,39 @@ contract CDPVault is ReentrancyGuard, Ownable, VRFConsumerBaseV2 {
     }
 
     /**
+     * @dev Get lender pool information
+     * @param _lender Address of the lender
+     * @return stakedAmount The amount staked
+     * @return accruedRewards The accrued rewards
+     * @return reputation The lender reputation
+     * @return isActive Whether the pool is active
+     */
+    function getLenderInfo(address _lender) external view returns (
+        uint256 stakedAmount,
+        uint256 accruedRewards, 
+        uint256 reputation,
+        bool isActive
+    ) {
+        LenderPool storage pool = lenderPools[_lender];
+        
+        // Calculate current accrued rewards
+        uint256 currentRewards = pool.accruedRewards;
+        if (pool.isActive && pool.stakedAmount > 0) {
+            uint256 timeElapsed = block.timestamp.sub(pool.lastRewardUpdate);
+            uint256 annualReward = pool.stakedAmount.mul(500).div(10000); // 5% APY
+            uint256 additionalReward = annualReward.mul(timeElapsed).div(365 days);
+            currentRewards = currentRewards.add(additionalReward);
+        }
+        
+        return (
+            pool.stakedAmount,
+            currentRewards,
+            pool.reputation,
+            pool.isActive
+        );
+    }
+
+    /**
      * @dev Check if CDP is overdue
      * @param _borrower Address of the borrower
      * @return True if overdue
@@ -356,5 +502,18 @@ contract CDPVault is ReentrancyGuard, Ownable, VRFConsumerBaseV2 {
     function isOverdue(address _borrower) external view returns (bool) {
         CDP storage cdp = cdps[_borrower];
         return cdp.isActive && cdp.dueDate > 0 && block.timestamp > cdp.dueDate;
+    }
+    
+    /**
+     * @dev Get total debt including accrued interest for a borrower
+     * @param _borrower Address of the borrower
+     * @return Total debt amount including interest
+     */
+    function getTotalDebtWithInterest(address _borrower) external view returns (uint256) {
+        CDP storage cdp = cdps[_borrower];
+        if (!cdp.isActive) return 0;
+        
+        uint256 accruedInterest = calculateAccruedInterest(_borrower);
+        return cdp.debtAmount.add(accruedInterest);
     }
 }

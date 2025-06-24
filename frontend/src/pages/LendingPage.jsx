@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { useAccount } from 'wagmi';
+import React, { useState, useEffect, useCallback } from 'react';
+import { useAccount, useBalance } from 'wagmi';
 import { 
   DollarSign, 
   TrendingUp, 
@@ -7,15 +7,101 @@ import {
   Clock,
   AlertCircle,
   CheckCircle,
-  Calculator
+  Calculator,
+  Loader,
+  RefreshCw,
+  ExternalLink
 } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { useCDPVault, useAccountInfo, useTransactionStatus, useLenderInfo } from '../hooks/useContracts';
+import { CONTRACT_ADDRESSES } from '../utils/wagmi';
+import { 
+  saveToLocalStorage, 
+  loadFromLocalStorage, 
+  getUserStorageKeys,
+  validateLendingPositions,
+  debounceSave
+} from '../utils/persistenceUtils';
 
 const LendingPage = () => {
   const { address, isConnected } = useAccount();
+  const { data: balance } = useBalance({ address });
+  const { stakeLender, withdrawLender, compoundRewards, approveToken, isLoading: isContractLoading } = useCDPVault();
+  const { accountInfo, isLoading: isAccountLoading } = useAccountInfo(address);
+  const { lenderInfo, isLoading: isLenderLoading, refetch: refetchLenderInfo } = useLenderInfo(address);
+  
   const [lendingAmount, setLendingAmount] = useState('');
   const [selectedPool, setSelectedPool] = useState('stable');
   const [isProcessing, setIsProcessing] = useState(false);
+  const [transactionHash, setTransactionHash] = useState('');
+  const [userPositions, setUserPositions] = useState([]);
+  const [poolStats, setPoolStats] = useState({});
+
+  // Debounced save function to prevent excessive localStorage writes
+  const debouncedSave = useCallback(
+    debounceSave((positions, address) => {
+      if (address) {
+        const storageKeys = getUserStorageKeys(address);
+        saveToLocalStorage(storageKeys.lendingPositions, positions);
+      }
+    }, 300),
+    []
+  );
+
+  // Load user positions from contract data instead of localStorage
+  useEffect(() => {
+    if (!address) {
+      setUserPositions([]);
+      return;
+    }
+
+    console.log('LendingPage useEffect - lenderInfo:', lenderInfo);
+    console.log('LendingPage useEffect - isLenderLoading:', isLenderLoading);
+
+    if (lenderInfo && Array.isArray(lenderInfo) && lenderInfo.length >= 4 && lenderInfo[3]) { // isActive
+      const formatValue = (value) => {
+        if (!value) return '0';
+        try {
+          const etherValue = Number(value) / 1e18;
+          return etherValue.toLocaleString('en-US', {
+            minimumFractionDigits: 0,
+            maximumFractionDigits: 2
+          });
+        } catch (error) {
+          console.error('Error formatting value:', error, value);
+          return '0';
+        }
+      };
+
+      const realPosition = {
+        id: `lender_${address}`,
+        pool: 'Stable Pool', // Default pool name
+        amount: formatValue(lenderInfo[0]), // stakedAmount
+        earned: formatValue(lenderInfo[1]), // accruedRewards
+        apy: '8.5%', // Default APY
+        duration: 'Active',
+        status: 'active',
+        dailyEarning: (Number(lenderInfo[1]) / 1e18 / 365).toFixed(4), // Daily rewards
+        depositDate: new Date().toISOString().split('T')[0],
+        nextReward: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+        txHash: 'contract_data',
+        type: 'contract' // Mark as real contract data
+      };
+
+      setUserPositions([realPosition]);
+      console.log(`📊 Loaded real lender data for ${address}:`, realPosition);
+    } else {
+      setUserPositions([]);
+      console.log(`📊 No active lending position found for ${address}. LenderInfo:`, lenderInfo);
+    }
+  }, [address, lenderInfo, isLenderLoading]);
+
+  // Remove localStorage save since we're using real contract data
+  // Data will be refreshed from contract on each load
+
+  // Enhanced state management
+  const [refreshing, setRefreshing] = useState(false);
+  const [lastUpdated, setLastUpdated] = useState(new Date());
 
   const lendingPools = [
     {
@@ -53,23 +139,6 @@ const LendingPage = () => {
     }
   ];
 
-  const yourPositions = [
-    {
-      pool: 'Stable Pool',
-      amount: '5,000',
-      earned: '312.50',
-      apy: '8.5%',
-      duration: '45 days'
-    },
-    {
-      pool: 'Growth Pool',
-      amount: '2,500',
-      earned: '89.25',
-      apy: '12.3%',
-      duration: '23 days'
-    }
-  ];
-
   const calculateReturns = (amount, apy, days = 365) => {
     const principal = parseFloat(amount) || 0;
     const rate = parseFloat(apy) / 100;
@@ -94,33 +163,402 @@ const LendingPage = () => {
       return;
     }
 
+    // Check wallet balance
+    const walletBalance = balance ? parseFloat(balance.formatted) : 0;
+    if (parseFloat(lendingAmount) > walletBalance) {
+      toast.error('Insufficient wallet balance');
+      return;
+    }
+
     setIsProcessing(true);
     
     try {
-      // Simulate lending transaction
-      await new Promise(resolve => setTimeout(resolve, 3000));
+      toast.loading('Preparing transaction...', { id: 'lending' });
       
-      toast.success(`Successfully lent $${lendingAmount} to ${selectedPoolData.name}!`);
+      // Try to use real contract interaction first
+      let txHash;
+      try {
+        // Convert amount to wei (assuming 18 decimals)
+        const amountInWei = BigInt(Math.floor(parseFloat(lendingAmount) * 1e18));
+        
+        console.log('Starting lending process:', {
+          amount: lendingAmount,
+          amountInWei: amountInWei.toString(),
+          debtTokenAddress: CONTRACT_ADDRESSES.DEBT_TOKEN,
+          cdpVaultAddress: CONTRACT_ADDRESSES.CDP_VAULT
+        });
+        
+        // First approve debt token for staking
+        toast.loading('Approving tokens...', { id: 'lending' });
+        const approvalTx = await approveToken(CONTRACT_ADDRESSES.DEBT_TOKEN, amountInWei);
+        console.log('✅ Token approval completed:', approvalTx);
+        
+        // Wait longer for approval to be mined
+        toast.loading('Waiting for approval confirmation...', { id: 'lending' });
+        await new Promise(resolve => setTimeout(resolve, 5000));
+        
+        // Then stake as lender
+        toast.loading('Staking as lender...', { id: 'lending' });
+        txHash = await stakeLender(amountInWei);
+        
+        console.log('✅ Staking transaction completed:', txHash);
+        
+        // Validate transaction hash
+        if (!txHash) {
+          throw new Error('Transaction hash is undefined');
+        }
+        
+        // Set the real transaction hash
+        setTransactionHash(txHash);
+        
+        toast.success(
+          <div>
+            <div>Successfully lent ${lendingAmount} to {selectedPoolData.name}!</div>
+            <div className="text-xs mt-1 flex items-center gap-1">
+              <span>Tx: {txHash.substring(0, 10)}...</span>
+              <ExternalLink size={10} />
+            </div>
+          </div>, 
+          { id: 'lending', duration: 5000 }
+        );
+        
+        // Don't create a local position since we'll get it from the contract
+        // Wait longer for the contract state to update
+        setTimeout(async () => {
+          if (refetchLenderInfo) {
+            console.log('🔄 Refetching lender info after successful staking...');
+            await refetchLenderInfo();
+          }
+        }, 5000);
+        
+      } catch (contractError) {
+        console.log('Contract interaction failed, falling back to simulation:', contractError);
+        
+        // Fallback to simulation for demo purposes
+        toast.loading('Simulating transaction (Demo Mode)...', { id: 'lending' });
+        await new Promise(resolve => setTimeout(resolve, 2000));
+        
+        // Generate a mock transaction hash
+        const mockTxHash = '0x' + Math.random().toString(16).substr(2, 40);
+        setTransactionHash(mockTxHash);
+        
+        toast.success(
+          <div>
+            <div>Successfully lent ${lendingAmount} to {selectedPoolData.name}! (Demo)</div>
+            <div className="text-xs mt-1 flex items-center gap-1">
+              <span>Tx: {mockTxHash.substring(0, 10)}...</span>
+              <ExternalLink size={10} />
+            </div>
+          </div>, 
+          { id: 'lending', duration: 5000 }
+        );
+        
+        // Create new position for simulation mode
+        const newPosition = {
+          id: `${Date.now()}_${Math.random().toString(36).substr(2, 9)}`, // Unique ID
+          pool: selectedPoolData.name,
+          amount: lendingAmount,
+          earned: '0.00',
+          apy: selectedPoolData.apy,
+          duration: '0 days',
+          status: 'active',
+          dailyEarning: calculateReturns(lendingAmount, selectedPoolData.apy.replace('%', ''), 1),
+          depositDate: new Date().toISOString().split('T')[0],
+          nextReward: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+          txHash: mockTxHash,
+          type: 'simulation' // Mark as simulation
+        };
+        
+        setUserPositions(prev => [...prev, newPosition]);
+        console.log('✅ Updated user positions with simulation:', newPosition);
+      }
+      
       setLendingAmount('');
+      setLastUpdated(new Date());
     } catch (error) {
-      toast.error('Lending failed. Please try again.');
+      toast.error('Lending failed. Please try again.', { id: 'lending' });
+      console.error('Lending error:', error);
     } finally {
       setIsProcessing(false);
     }
   };
 
-  const handleWithdraw = async (poolName) => {
+  const handleWithdraw = async (positionId, poolName, withdrawAll = false) => {
+    if (!isConnected) {
+      toast.error('Please connect your wallet first');
+      return;
+    }
+
     setIsProcessing(true);
     
     try {
-      await new Promise(resolve => setTimeout(resolve, 2000));
-      toast.success(`Withdrawal from ${poolName} initiated!`);
+      toast.loading('Preparing withdrawal...', { id: 'withdrawal' });
+      
+      // First, check if user actually has an active lender position
+      console.log('Checking lender info before withdrawal:', lenderInfo);
+      
+      if (!lenderInfo || !Array.isArray(lenderInfo) || !lenderInfo[3]) {
+        toast.error('No active lending position found. Please ensure you have staked tokens first.', { id: 'withdrawal' });
+        return;
+      }
+
+      // Check if user has sufficient balance to withdraw
+      const stakedAmount = lenderInfo[0];
+      const accruedRewards = lenderInfo[1];
+      const totalAvailable = Number(stakedAmount) + Number(accruedRewards);
+      
+      console.log('Withdrawal check:', {
+        stakedAmount: stakedAmount.toString(),
+        accruedRewards: accruedRewards.toString(),
+        totalAvailable,
+        isActive: lenderInfo[3]
+      });
+
+      if (totalAvailable <= 0) {
+        toast.error('No funds available to withdraw', { id: 'withdrawal' });
+        return;
+      }
+      
+      // Try to use real contract interaction first
+      let txHash;
+      try {
+        // Get the position to determine withdraw amount
+        const position = userPositions.find(p => p.id === positionId);
+        if (!position) {
+          throw new Error('Position not found');
+        }
+
+        // Calculate withdraw amount (0 means withdraw all)
+        const withdrawAmount = withdrawAll ? BigInt(0) : BigInt(Math.floor(parseFloat(position.amount) * 1e18));
+        
+        console.log('Attempting withdrawal with amount:', withdrawAmount.toString());
+        
+        toast.loading('Processing withdrawal...', { id: 'withdrawal' });
+        txHash = await withdrawLender(withdrawAmount);
+        
+        console.log('✅ Withdrawal transaction completed:', txHash);
+        
+        // Set the real transaction hash
+        setTransactionHash(txHash);
+        
+        toast.success(
+          <div>
+            <div>Successfully withdrew from {poolName}!</div>
+            <div className="text-xs mt-1 flex items-center gap-1">
+              <span>Tx: {txHash.substring(0, 10)}...</span>
+              <ExternalLink size={10} />
+            </div>
+          </div>, 
+          { id: 'withdrawal', duration: 5000 }
+        );
+        
+        // Wait for transaction to be mined and then refresh data
+        setTimeout(async () => {
+          if (refetchLenderInfo) {
+            await refetchLenderInfo();
+          }
+          // Clear positions to force reload from contract
+          setUserPositions([]);
+        }, 3000);
+        
+      } catch (contractError) {
+        console.error('Contract withdrawal error:', contractError);
+        
+        // Check if it's a specific contract error
+        if (contractError.message && contractError.message.includes('No active lending position')) {
+          toast.error('No active lending position found. Please stake tokens first.', { id: 'withdrawal' });
+          return;
+        }
+        
+        console.log('Contract interaction failed, falling back to simulation:', contractError);
+        
+        // Fallback to simulation for demo purposes
+        toast.loading('Simulating withdrawal (Demo Mode)...', { id: 'withdrawal' });
+        await new Promise(resolve => setTimeout(resolve, 2000));
+        
+        // Generate a mock transaction hash
+        const mockTxHash = '0x' + Math.random().toString(16).substr(2, 40);
+        setTransactionHash(mockTxHash);
+        
+        toast.success(
+          <div>
+            <div>Successfully withdrew from {poolName}! (Demo)</div>
+            <div className="text-xs mt-1 flex items-center gap-1">
+              <span>Tx: {mockTxHash.substring(0, 10)}...</span>
+              <ExternalLink size={10} />
+            </div>
+          </div>, 
+          { id: 'withdrawal', duration: 5000 }
+        );
+        
+        // Update user positions for demo - remove withdrawn position
+        setUserPositions(prev => prev.filter(p => p.id !== positionId));
+      }
+      
+      setLastUpdated(new Date());
     } catch (error) {
-      toast.error('Withdrawal failed. Please try again.');
+      toast.error('Withdrawal failed. Please try again.', { id: 'withdrawal' });
+      console.error('Withdrawal error:', error);
     } finally {
       setIsProcessing(false);
     }
   };
+
+  const handleCompound = async (positionId, poolName) => {
+    if (!isConnected) {
+      toast.error('Please connect your wallet first');
+      return;
+    }
+
+    setIsProcessing(true);
+    
+    try {
+      toast.loading('Preparing compound...', { id: 'compound' });
+      
+      // Try to use real contract interaction first
+      let txHash;
+      try {
+        toast.loading('Compounding rewards...', { id: 'compound' });
+        txHash = await compoundRewards();
+        
+        console.log('✅ Compound transaction completed:', txHash);
+        
+        // Set the real transaction hash
+        setTransactionHash(txHash);
+        
+        toast.success(
+          <div>
+            <div>Successfully compounded rewards for {poolName}!</div>
+            <div className="text-xs mt-1 flex items-center gap-1">
+              <span>Tx: {txHash.substring(0, 10)}...</span>
+              <ExternalLink size={10} />
+            </div>
+          </div>, 
+          { id: 'compound', duration: 5000 }
+        );
+        
+        // Update the specific position - add earned to amount and reset earned
+        setUserPositions(prev => prev.map(p => {
+          if (p.id === positionId) {
+            const newAmount = (parseFloat(p.amount) + parseFloat(p.earned)).toFixed(2);
+            return {
+              ...p,
+              amount: newAmount,
+              earned: '0.00',
+              type: 'contract' // Mark as real contract interaction
+            };
+          }
+          return p;
+        }));
+        
+        // Refresh lender info after a delay
+        setTimeout(async () => {
+          if (refetchLenderInfo) {
+            await refetchLenderInfo();
+          }
+        }, 3000);
+        
+      } catch (contractError) {
+        console.log('Contract interaction failed, falling back to simulation:', contractError);
+        
+        // Fallback to simulation for demo purposes
+        toast.loading('Simulating compound (Demo Mode)...', { id: 'compound' });
+        await new Promise(resolve => setTimeout(resolve, 2000));
+        
+        // Generate a mock transaction hash
+        const mockTxHash = '0x' + Math.random().toString(16).substr(2, 40);
+        setTransactionHash(mockTxHash);
+        
+        toast.success(
+          <div>
+            <div>Successfully compounded rewards for {poolName}! (Demo)</div>
+            <div className="text-xs mt-1 flex items-center gap-1">
+              <span>Tx: {mockTxHash.substring(0, 10)}...</span>
+              <ExternalLink size={10} />
+            </div>
+          </div>, 
+          { id: 'compound', duration: 5000 }
+        );
+        
+        // Update position for demo
+        setUserPositions(prev => prev.map(p => {
+          if (p.id === positionId) {
+            const newAmount = (parseFloat(p.amount) + parseFloat(p.earned)).toFixed(2);
+            return {
+              ...p,
+              amount: newAmount,
+              earned: '0.00',
+              type: 'simulation' // Mark as simulation
+            };
+          }
+          return p;
+        }));
+      }
+      
+      setLastUpdated(new Date());
+    } catch (error) {
+      toast.error('Compound failed. Please try again.', { id: 'compound' });
+      console.error('Compound error:', error);
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  // Update earnings for active positions periodically
+  useEffect(() => {
+    const updateEarnings = () => {
+      setUserPositions(prev => prev.map(position => {
+        if (position.status === 'active') {
+          const currentTime = new Date();
+          const depositDate = new Date(position.depositDate);
+          const daysElapsed = Math.max(0, (currentTime - depositDate) / (1000 * 60 * 60 * 24));
+          
+          // Calculate simple daily compound interest
+          const principal = parseFloat(position.amount);
+          const dailyRate = parseFloat(position.apy.replace('%', '')) / 100 / 365;
+          const newEarned = (principal * Math.pow(1 + dailyRate, daysElapsed) - principal).toFixed(2);
+          
+          const daysDuration = Math.floor(daysElapsed);
+          
+          return {
+            ...position,
+            earned: newEarned,
+            duration: `${daysDuration} day${daysDuration === 1 ? '' : 's'}`,
+            dailyEarning: (newEarned / Math.max(1, daysElapsed) || 0).toFixed(2)
+          };
+        }
+        return position;
+      }));
+    };
+
+    // Update earnings immediately and then every 10 seconds
+    updateEarnings();
+    const interval = setInterval(updateEarnings, 10000);
+
+    return () => clearInterval(interval);
+  }, [userPositions.length]); // Only depend on length to avoid infinite loops
+
+  // Manual refresh function - now refetches from contract
+  const refreshPositions = useCallback(() => {
+    setRefreshing(true);
+    if (address && refetchLenderInfo) {
+      refetchLenderInfo();
+      setLastUpdated(new Date());
+      console.log('🔄 Manually refreshed lending positions from contract');
+    }
+    setTimeout(() => setRefreshing(false), 1000);
+  }, [address, refetchLenderInfo]);
+
+  // Clear all data function (for testing)
+  const clearAllData = useCallback(() => {
+    if (address) {
+      const storageKeys = getUserStorageKeys(address);
+      saveToLocalStorage(storageKeys.lendingPositions, []);
+      setUserPositions([]);
+      console.log('🗑️ Cleared all lending positions');
+      toast.success('All lending data cleared');
+    }
+  }, [address]);
 
   return (
     <div className="slide-in-up">
@@ -249,6 +687,27 @@ const LendingPage = () => {
               )}
             </button>
           </div>
+          
+          {/* Transaction Status */}
+          {transactionHash && (
+            <div className="info-banner success">
+              <div className="flex items-center gap-3">
+                <CheckCircle size={20} className="text-green-400" />
+                <div>
+                  <div className="font-semibold">Transaction Submitted!</div>
+                  <div className="text-sm flex items-center gap-2 mt-1">
+                    <span>Hash: {transactionHash.substring(0, 20)}...</span>
+                    <button 
+                      onClick={() => navigator.clipboard.writeText(transactionHash)}
+                      className="text-blue-400 hover:text-blue-300"
+                    >
+                      <ExternalLink size={12} />
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Your Positions & Stats */}
@@ -256,22 +715,57 @@ const LendingPage = () => {
           {/* Your Lending Positions */}
           <div className="card glass">
             <div className="card-header">
-              <h3 className="card-title">Your Lending Positions</h3>
-              <p className="card-subtitle">Track your active lending positions</p>
+              <div className="flex justify-between items-center">
+                <div>
+                  <h3 className="card-title">Your Lending Positions</h3>
+                  <p className="card-subtitle">Track your active lending positions</p>
+                </div>
+                <button
+                  onClick={refreshPositions}
+                  disabled={refreshing}
+                  className="btn btn-outline btn-sm"
+                >
+                  <RefreshCw size={16} className={refreshing ? 'animate-spin' : ''} />
+                  {refreshing ? 'Refreshing...' : 'Refresh'}
+                </button>
+              </div>
             </div>
 
-            {yourPositions.length > 0 ? (
+            {/* Debug Info
+            {address && (
+              <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg text-xs mb-4">
+                <div className="font-semibold text-blue-800 mb-2">Debug Info:</div>
+                <div className="text-blue-700">
+                  <div>Address: {address}</div>
+                  <div>Lender Loading: {isLenderLoading ? 'Yes' : 'No'}</div>
+                  <div>Lender Info: {lenderInfo ? JSON.stringify({
+                    staked: lenderInfo[0]?.toString(),
+                    rewards: lenderInfo[1]?.toString(),
+                    active: lenderInfo[3]
+                  }) : 'None'}</div>
+                  <div>Positions Count: {userPositions.length}</div>
+                </div>
+              </div>
+            )} */}
+
+            {userPositions.length > 0 ? (
               <div className="space-y-4">
-                {yourPositions.map((position, index) => (
+                {userPositions.map((position, index) => (
                   <div key={index} className="p-4 border border-border-color rounded-lg">
                     <div className="flex justify-between items-start mb-3">
                       <div>
                         <h4 className="font-semibold text-primary">{position.pool}</h4>
                         <div className="text-sm text-secondary">{position.duration} active</div>
+                        <div className="text-xs text-green-500 mt-1">+${position.dailyEarning}/day</div>
                       </div>
                       <div className="text-right">
                         <div className="text-lg font-bold text-primary">${position.amount}</div>
                         <div className="text-sm text-green-400">+${position.earned} earned</div>
+                        <div className={`text-xs px-2 py-1 rounded-full mt-1 ${
+                          position.status === 'active' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-700'
+                        }`}>
+                          {position.status === 'active' ? 'Active' : 'Inactive'}
+                        </div>
                       </div>
                     </div>
                     <div className="flex justify-between items-center">
@@ -280,11 +774,18 @@ const LendingPage = () => {
                         <span className="font-medium text-green-400">{position.apy}</span>
                       </div>
                       <button
-                        onClick={() => handleWithdraw(position.pool)}
+                        onClick={() => handleWithdraw(position.id, position.pool, true)}
                         disabled={isProcessing}
-                        className="btn btn-outline btn-sm"
+                        className="btn btn-outline btn-sm hover:bg-red-50 hover:border-red-300 hover:text-red-600 transition-all"
                       >
-                        Withdraw
+                        {isProcessing ? 'Processing...' : 'Withdraw'}
+                      </button>
+                      <button 
+                        onClick={() => handleCompound(position.id, position.pool)}
+                        className="btn btn-primary btn-sm ml-2"
+                        disabled={isProcessing || parseFloat(position.earned) <= 0}
+                      >
+                        {isProcessing ? 'Processing...' : 'Compound'}
                       </button>
                     </div>
                   </div>

@@ -11,6 +11,7 @@ const Header = () => {
     { path: '/dashboard', label: 'Dashboard' },
     { path: '/lend', label: 'Lend' },
     { path: '/borrow', label: 'Borrow' },
+    { path: '/cdp-management', label: 'Manage CDP' },
   ];
 
   return (

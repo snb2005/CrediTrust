@@ -68,7 +68,13 @@ Open [http://localhost:3002](http://localhost:3002) in your browser.
 npm run build
 ```
 
-## Smart Contracts Integration
+## Smart Contracts Integ🔍 Checking current lender info...
+Lender info: {
+  stakedAmount: '117.0',
+  accruedRewards: '0.000012799657534246',
+  reputation: '100',
+  isActive: true
+}ration
 Update contract addresses in `src/contracts/abis.js` to connect to deployed contracts:
 
 ```javascript

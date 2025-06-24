@@ -1,31 +1,23 @@
 const hre = require("hardhat");
 
 async function main() {
-  console.log("Deploying CrediTrust contracts...");
+  console.log("🚀 Deploying CrediTrust contracts for both lending and borrowing...");
 
-  const [deployer] = await hre.ethers.getSigners();
+  const [deployer, user1, user2, user3] = await hre.ethers.getSigners();
   console.log("Deploying contracts with the account:", deployer.address);
-
-  const balance = await deployer.provider.getBalance(deployer.address);
-  console.log("Account balance:", hre.ethers.formatEther(balance));
 
   // Deploy mock tokens for testing
   console.log("\n1. Deploying mock tokens...");
   
   const MockERC20 = await hre.ethers.getContractFactory("MockERC20");
   
-  const collateralToken = await MockERC20.deploy("Collateral Token", "COLL", 18);
+  const collateralToken = await MockERC20.deploy("Mock ETH", "mETH", 18);
   await collateralToken.waitForDeployment();
   console.log("Collateral Token deployed to:", await collateralToken.getAddress());
 
-  const debtToken = await MockERC20.deploy("Debt Token", "DEBT", 18);
+  const debtToken = await MockERC20.deploy("Mock USDC", "mUSDC", 18);
   await debtToken.waitForDeployment();
   console.log("Debt Token deployed to:", await debtToken.getAddress());
-
-  // Chainlink VRF configuration for Base Sepolia (using defaults for local testing)
-  const vrfCoordinator = process.env.CHAINLINK_VRF_COORDINATOR || "0x0000000000000000000000000000000000000000";
-  const keyHash = process.env.CHAINLINK_KEY_HASH || "0x0000000000000000000000000000000000000000000000000000000000000000";
-  const subscriptionId = process.env.CHAINLINK_SUBSCRIPTION_ID || 1;
 
   // Deploy CDPVault
   console.log("\n2. Deploying CDPVault...");
@@ -33,9 +25,9 @@ async function main() {
   const cdpVault = await CDPVault.deploy(
     await collateralToken.getAddress(),
     await debtToken.getAddress(),
-    vrfCoordinator,
-    subscriptionId,
-    keyHash
+    "0x9DdfaCa8183c41ad55329BdeeD9F6A8d53168B1B", // Mock VRF coordinator
+    1, // subscription ID
+    "0xd4bb89654db74673a187bd804519e65e3f71a52bc55f9c808f9e8ea8c7ad12c3" // gas lane
   );
   await cdpVault.waitForDeployment();
   console.log("CDPVault deployed to:", await cdpVault.getAddress());
@@ -59,14 +51,29 @@ async function main() {
   await router.waitForDeployment();
   console.log("x402Router deployed to:", await router.getAddress());
 
-  // Mint initial tokens for testing
-  console.log("\n5. Minting initial tokens for testing...");
+  // SETUP FOR BOTH LENDING AND BORROWING
+  console.log("\n5. Setting up tokens for comprehensive testing...");
   
-  const mintAmount = hre.ethers.parseUnits("10000", 18);
-  await collateralToken.mint(deployer.address, mintAmount);
-  await debtToken.mint(deployer.address, mintAmount);
-  
-  console.log("Minted", hre.ethers.formatEther(mintAmount), "tokens to deployer");
+  const userMintAmount = hre.ethers.parseUnits("10000", 18); 
+  const vaultLiquidityAmount = hre.ethers.parseUnits("100000", 18); // Large amount for borrowing
+
+  // Mint tokens to all test users
+  const users = [deployer, user1, user2, user3];
+  for (let i = 0; i < users.length; i++) {
+    const user = users[i];
+    
+    // Mint collateral tokens (mETH) to users
+    await collateralToken.mint(user.address, userMintAmount);
+    
+    // Mint debt tokens (mUSDC) to users for lending
+    await debtToken.mint(user.address, userMintAmount);
+    
+    console.log(`✅ User ${i}: Minted ${hre.ethers.formatEther(userMintAmount)} mETH and mUSDC`);
+  }
+
+  // CRITICAL: Mint debt tokens to CDP Vault for borrowing liquidity
+  await debtToken.mint(await cdpVault.getAddress(), vaultLiquidityAmount);
+  console.log(`✅ CDP Vault: Minted ${hre.ethers.formatEther(vaultLiquidityAmount)} mUSDC for borrowing liquidity`);
 
   // Save deployment addresses
   const deploymentInfo = {
@@ -95,53 +102,21 @@ async function main() {
   );
   console.log("\nDeployment info saved to deployment-info.json");
 
-  console.log("\n7. Next steps:");
-  console.log("- Update .env file with contract addresses");
-  console.log("- Add VRF subscription consumer");
-  console.log("- Fund contracts with LINK tokens for Chainlink services");
-  console.log("- Start the backend ML scoring service");
-  console.log("- Launch the frontend application");
-}
+  console.log("\n✅ DEPLOYMENT COMPLETE!");
+  console.log("🏦 Ready for both lending and borrowing");
+  console.log("💰 Users have mETH (collateral) and mUSDC (for lending)");
+  console.log("🏛️  CDP Vault has mUSDC liquidity for borrowers");
+  
+  console.log("\n📋 Copy these addresses to wagmi.js:");
+  console.log(`CDP_VAULT: '${await cdpVault.getAddress()}'`);
+  console.log(`COLLATERAL_TOKEN: '${await collateralToken.getAddress()}'`);
+  console.log(`DEBT_TOKEN: '${await debtToken.getAddress()}'`);
+  console.log(`CREDIT_AGENT: '${await creditAgent.getAddress()}'`);
+  console.log(`X402_ROUTER: '${await router.getAddress()}'`);
 
-// Contract for mock ERC20 tokens
-const MockERC20Source = `
-// SPDX-License-Identifier: MIT
-pragma solidity ^0.8.19;
-
-import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
-import "@openzeppelin/contracts/access/Ownable.sol";
-
-contract MockERC20 is ERC20, Ownable {
-    uint8 private _decimals;
-
-    constructor(
-        string memory name,
-        string memory symbol,
-        uint8 decimals_
-    ) ERC20(name, symbol) {
-        _decimals = decimals_;
-    }
-
-    function decimals() public view virtual override returns (uint8) {
-        return _decimals;
-    }
-
-    function mint(address to, uint256 amount) external onlyOwner {
-        _mint(to, amount);
-    }
-
-    function burn(address from, uint256 amount) external onlyOwner {
-        _burn(from, amount);
-    }
-}
-`;
-
-// Write MockERC20 contract if it doesn't exist
-const fs = require("fs");
-const path = require("path");
-
-if (!fs.existsSync("./contracts/MockERC20.sol")) {
-  fs.writeFileSync("./contracts/MockERC20.sol", MockERC20Source);
+  console.log("\n🧪 Test both features:");
+  console.log("- Lending: Users can stake mUSDC to earn rewards");
+  console.log("- Borrowing: Users can deposit mETH collateral and borrow mUSDC");
 }
 
 main()

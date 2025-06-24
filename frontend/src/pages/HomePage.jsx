@@ -46,10 +46,10 @@ const HomePage = () => {
   ];
 
   const stats = [
-    { value: '$2.5M+', label: 'Total Value Locked' },
-    { value: '1,250+', label: 'Active Loans' },
-    { value: '95.2%', label: 'Repayment Rate' },
-    { value: '24/7', label: 'Uptime' }
+    { value: '$4.2M+', label: 'Total Value Locked', trend: '+15.3%' },
+    { value: '2,847+', label: 'Active Loans', trend: '+8.7%' },
+    { value: '97.8%', label: 'Repayment Rate', trend: '+0.5%' },
+    { value: '24/7', label: 'Uptime', trend: '99.9%' }
   ];
 
   const benefits = [
@@ -93,9 +93,14 @@ const HomePage = () => {
       {/* Stats Section */}
       <section className="stats-grid">
         {stats.map((stat, index) => (
-          <div key={index} className="stat-card glass">
+          <div key={index} className="stat-card glass hover:scale-105 transition-transform duration-200">
             <div className="stat-value">{stat.value}</div>
             <div className="stat-label">{stat.label}</div>
+            {stat.trend && (
+              <div className="text-sm text-green-500 font-medium mt-1">
+                {stat.trend} this month
+              </div>
+            )}
           </div>
         ))}
       </section>

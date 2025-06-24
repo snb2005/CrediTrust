@@ -9,8 +9,10 @@ import HomePage from './pages/HomePage';
 import DashboardPage from './pages/DashboardPage';
 import LendingPage from './pages/LendingPage';
 import BorrowingPage from './pages/BorrowingPage';
+import CDPManagement from './components/CDPManagement';
 import Header from './components/Header';
 import ThemeToggle from './components/ThemeToggle';
+import DataPersistenceDebugger from './components/DataPersistenceDebugger';
 import './styles/App.css';
 import '@rainbow-me/rainbowkit/styles.css';
 
@@ -71,6 +73,7 @@ function App() {
                     <Route path="/dashboard" element={<DashboardPage />} />
                     <Route path="/lend" element={<LendingPage />} />
                     <Route path="/borrow" element={<BorrowingPage />} />
+                    <Route path="/cdp-management" element={<CDPManagement />} />
                   </Routes>
                 </main>
                 <Toaster 
@@ -86,6 +89,7 @@ function App() {
                     },
                   }}
                 />
+                <DataPersistenceDebugger />
               </div>
             </Router>
           </RainbowKitProvider>
