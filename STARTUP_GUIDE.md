@@ -116,3 +116,5 @@ node scripts/test_cdp_flow.js
 ```
 
 This should show successful CDP creation, borrowing, and repayment operations.
+
+node test_both_features.js

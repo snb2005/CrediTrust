@@ -290,13 +290,6 @@ const DashboardPage = () => {
             <RefreshCw size={16} className={refreshing ? 'animate-spin' : ''} />
             {refreshing ? 'Refreshing...' : 'Refresh'}
           </button>
-          <button
-            onClick={handleExportData}
-            className="btn btn-primary hover:bg-blue-600 transition-all"
-          >
-            <Download size={16} />
-            Export Data
-          </button>
         </div>
       </div>
       {/* Header Stats */}

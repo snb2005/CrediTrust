@@ -1,11 +1,11 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
-import { 
-  Shield, 
-  TrendingUp, 
-  Users, 
-  Lock, 
-  Zap, 
+import {
+  Shield,
+  TrendingUp,
+  Users,
+  Lock,
+  Zap,
   BarChart3,
   ArrowRight,
   CheckCircle
@@ -71,8 +71,8 @@ const HomePage = () => {
           Decentralized Lending
         </h1>
         <p className="hero-subtitle">
-          CrediTrust revolutionizes microcredit with autonomous risk assessment, 
-          smart contracts, and AI-powered credit scoring. Experience the next 
+          CrediTrust revolutionizes microcredit with autonomous risk assessment,
+          smart contracts, and AI-powered credit scoring. Experience the next
           generation of decentralized finance.
         </p>
         <div className="hero-cta">
@@ -112,11 +112,11 @@ const HomePage = () => {
             Why Choose CrediTrust?
           </h2>
           <p className="text-lg text-secondary max-w-2xl mx-auto">
-            Our platform combines cutting-edge technology with financial innovation 
+            Our platform combines cutting-edge technology with financial innovation
             to create a seamless lending experience.
           </p>
         </div>
-        
+
         <div className="features-grid">
           {features.map((feature, index) => (
             <div key={index} className="feature-card slide-in-up" style={{ animationDelay: `${index * 0.1}s` }}>
@@ -139,15 +139,30 @@ const HomePage = () => {
                 Platform Benefits
               </h3>
               <div className="space-y-4">
-                {benefits.map((benefit, index) => (
-                  <div key={index} className="flex items-center gap-3">
-                    <CheckCircle 
-                      size={20} 
-                      className="text-green-500 flex-shrink-0" 
-                    />
-                    <span className="text-secondary">{benefit}</span>
-                  </div>
-                ))}
+                <div className="flex items-center gap-3">
+                  <CheckCircle size={20} className="text-green-500 flex-shrink-0" />
+                  <span className="text-secondary">No traditional credit checks required</span>
+                </div>
+                <div className="flex items-center gap-3">
+                  <CheckCircle size={20} className="text-green-500 flex-shrink-0" />
+                  <span className="text-secondary">Global accessibility with crypto wallets</span>
+                </div>
+                <div className="flex items-center gap-3">
+                  <CheckCircle size={20} className="text-green-500 flex-shrink-0" />
+                  <span className="text-secondary">Transparent and auditable processes</span>
+                </div>
+                <div className="flex items-center gap-3">
+                  <CheckCircle size={20} className="text-green-500 flex-shrink-0" />
+                  <span className="text-secondary">Lower fees than traditional lending</span>
+                </div>
+                <div className="flex items-center gap-3">
+                  <CheckCircle size={20} className="text-green-500 flex-shrink-0" />
+                  <span className="text-secondary">Instant liquidity for lenders</span>
+                </div>
+                <div className="flex items-center gap-3">
+                  <CheckCircle size={20} className="text-green-500 flex-shrink-0" />
+                  <span className="text-secondary">Risk-adjusted returns</span>
+                </div>
               </div>
               <div className="mt-8">
                 <Link to="/dashboard" className="btn btn-primary">
@@ -156,7 +171,7 @@ const HomePage = () => {
                 </Link>
               </div>
             </div>
-            
+
             <div className="flex items-center justify-center">
               <div className="relative">
                 <div className="w-64 h-64 rounded-full bg-gradient-to-r from-purple-500/20 to-pink-500/20 flex items-center justify-center">
@@ -178,25 +193,30 @@ const HomePage = () => {
         </div>
       </section>
 
+
       {/* CTA Section */}
-      <section className="text-center mt-16">
-        <div className="card glass">
-          <h3 className="text-2xl font-bold text-primary mb-4">
-            Ready to Join the DeFi Revolution?
-          </h3>
-          <p className="text-secondary mb-6">
-            Connect your wallet and start participating in the future of finance today.
-          </p>
-          <div className="flex gap-4 justify-center flex-wrap">
-            <Link to="/borrow" className="btn btn-primary">
-              Apply for Loan
-            </Link>
-            <Link to="/lend" className="btn btn-secondary">
-              Provide Liquidity
-            </Link>
+      {/* CTA Section */}
+      <div className="pt-6">
+        <section className="text-center mt-16">
+          <div className="card glass">
+            <h3 className="text-2xl font-bold text-primary mb-4">
+              Ready to Join the DeFi Revolution?
+            </h3>
+            <p className="text-secondary mb-6">
+              Connect your wallet and start participating in the future of finance today.
+            </p>
+            <div className="flex gap-4 justify-center flex-wrap">
+              <Link to="/borrow" className="btn btn-primary">
+                Apply for Loan
+              </Link>
+              <Link to="/lend" className="btn btn-secondary">
+                Provide Liquidity
+              </Link>
+            </div>
           </div>
-        </div>
-      </section>
+        </section>
+      </div>
+
     </div>
   );
 };

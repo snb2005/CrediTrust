@@ -1,12 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { useAccount } from 'wagmi';
 import { formatEther, parseEther } from 'viem';
-import { 
-  CreditCard, 
-  DollarSign, 
-  TrendingUp, 
-  TrendingDown, 
-  Plus, 
+import {
+  CreditCard,
+  DollarSign,
+  TrendingUp,
+  TrendingDown,
+  Plus,
   Minus,
   RefreshCw,
   AlertCircle,
@@ -108,38 +108,38 @@ const CDPManagement = () => {
     }
 
     const repayAmountWei = parseEther(repayAmount);
-    
+
     if (cdpMetrics && parseFloat(repayAmount) > cdpMetrics.totalDebt) {
       toast.error('Repayment amount exceeds total debt');
       return;
     }
 
     setIsProcessing(true);
-    
+
     try {
       toast.loading('Approving debt tokens...', { id: 'repay' });
-      
+
       // First approve the debt tokens
       const approvalTx = await approveToken(CONTRACT_ADDRESSES.DEBT_TOKEN, repayAmountWei);
       console.log('✅ Debt token approval completed:', approvalTx);
-      
+
       // Wait for approval to be mined
       toast.loading('Waiting for approval confirmation...', { id: 'repay' });
       await new Promise(resolve => setTimeout(resolve, 3000));
-      
+
       // Make the repayment
       toast.loading('Processing repayment...', { id: 'repay' });
       const repayTx = await makeRepayment(repayAmountWei);
       console.log('✅ Repayment completed:', repayTx);
-      
+
       toast.success(`Repayment of ${repayAmount} tokens successful!`, { id: 'repay' });
-      
+
       // Refresh data and clear form
       setRepayAmount('');
       setTimeout(() => {
         handleRefresh();
       }, 3000);
-      
+
     } catch (error) {
       console.error('Repayment error:', error);
       toast.error(`Repayment failed: ${error.message || 'Unknown error'}`, { id: 'repay' });
@@ -150,7 +150,7 @@ const CDPManagement = () => {
 
   const handlePayFull = async () => {
     if (!cdpMetrics) return;
-    
+
     setRepayAmount(cdpMetrics.totalDebt.toString());
     // The handleRepayment function will be called when user clicks the repay button
   };
@@ -167,33 +167,33 @@ const CDPManagement = () => {
     }
 
     const collateralAmountWei = parseEther(collateralAmount);
-    
+
     setIsProcessing(true);
-    
+
     try {
       toast.loading('Approving collateral tokens...', { id: 'collateral' });
-      
+
       // First approve the collateral tokens
       const approvalTx = await approveToken(CONTRACT_ADDRESSES.COLLATERAL_TOKEN, collateralAmountWei);
       console.log('✅ Collateral token approval completed:', approvalTx);
-      
+
       // Wait for approval to be mined
       toast.loading('Waiting for approval confirmation...', { id: 'collateral' });
       await new Promise(resolve => setTimeout(resolve, 3000));
-      
+
       // Add the collateral
       toast.loading('Adding collateral...', { id: 'collateral' });
       const collateralTx = await addCollateral(collateralAmountWei);
       console.log('✅ Collateral added:', collateralTx);
-      
+
       toast.success(`Added ${collateralAmount} collateral tokens!`, { id: 'collateral' });
-      
+
       // Refresh data and clear form
       setCollateralAmount('');
       setTimeout(() => {
         handleRefresh();
       }, 3000);
-      
+
     } catch (error) {
       console.error('Add collateral error:', error);
       toast.error(`Failed to add collateral: ${error.message || 'Unknown error'}`, { id: 'collateral' });
@@ -262,11 +262,12 @@ const CDPManagement = () => {
           <button
             onClick={handleRefresh}
             disabled={refreshing}
-            className="btn-secondary flex items-center gap-2"
+            className="btn btn-primary btn-sm ml-2 flex items-center gap-2"
           >
             <RefreshCw size={16} className={refreshing ? 'animate-spin' : ''} />
             Refresh
           </button>
+
         </div>
 
         {/* CDP Overview Cards */}
@@ -332,11 +333,10 @@ const CDPManagement = () => {
 
         {/* Health Status Alert */}
         {cdpMetrics?.healthStatus !== 'good' && (
-          <div className={`p-4 rounded-lg border mb-8 ${
-            cdpMetrics?.healthStatus === 'critical' 
+          <div className={`p-4 rounded-lg border mb-8 ${cdpMetrics?.healthStatus === 'critical'
               ? 'bg-red-500/10 border-red-500/20 text-red-400'
               : 'bg-yellow-500/10 border-yellow-500/20 text-yellow-400'
-          }`}>
+            }`}>
             <div className="flex items-center gap-2">
               <AlertCircle size={20} />
               <div>
@@ -344,7 +344,7 @@ const CDPManagement = () => {
                   {cdpMetrics?.healthStatus === 'critical' ? 'Critical Health Warning' : 'Health Warning'}
                 </p>
                 <p className="text-sm mt-1">
-                  {cdpMetrics?.healthStatus === 'critical' 
+                  {cdpMetrics?.healthStatus === 'critical'
                     ? 'Your CDP is at risk of liquidation. Add collateral or repay debt immediately.'
                     : 'Your collateral ratio is low. Consider adding more collateral or repaying some debt.'}
                 </p>
@@ -518,16 +518,16 @@ const CDPManagement = () => {
                     <div className="flex justify-between">
                       <span>New Collateral Ratio:</span>
                       <span className="font-mono text-green-400">
-                        {cdpMetrics?.totalDebt ? 
-                          (((cdpMetrics.collateral + parseFloat(collateralAmount)) / cdpMetrics.totalDebt) * 100).toFixed(1) + '%' 
+                        {cdpMetrics?.totalDebt ?
+                          (((cdpMetrics.collateral + parseFloat(collateralAmount)) / cdpMetrics.totalDebt) * 100).toFixed(1) + '%'
                           : 'N/A'}
                       </span>
                     </div>
                     <div className="flex justify-between">
                       <span>Additional Borrowing Capacity:</span>
                       <span className="font-mono text-green-400">
-                        +{cdpMetrics?.totalDebt ? 
-                          Math.max(0, (parseFloat(collateralAmount) / 1.2) - 0).toFixed(6) 
+                        +{cdpMetrics?.totalDebt ?
+                          Math.max(0, (parseFloat(collateralAmount) / 1.2) - 0).toFixed(6)
                           : '0'} USDC
                       </span>
                     </div>
