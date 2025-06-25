@@ -121,9 +121,16 @@ contract CDPVault is ReentrancyGuard, Ownable, VRFConsumerBaseV2 {
 
         emit CDPOpened(msg.sender, _collateralAmount, _creditScore, apr);
 
-        // Request random lender assignment if lenders are available
+        // For local testing, directly assign first available lender if VRF coordinator is zero address
         if (activeLenders.length > 0) {
-            requestRandomLender(msg.sender);
+            if (address(i_vrfCoordinator) == address(0)) {
+                // Direct assignment for local testing
+                cdps[msg.sender].assignedLender = activeLenders[0];
+                emit LenderAssigned(msg.sender, activeLenders[0]);
+            } else {
+                // Use VRF for production
+                requestRandomLender(msg.sender);
+            }
         }
     }
 

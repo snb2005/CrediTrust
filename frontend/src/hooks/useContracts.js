@@ -14,7 +14,6 @@ export const useCDPVault = () => {
         collateralAmount: collateralAmount.toString(),
         creditScore: creditScore
       });
-      
       const hash = await writeContractAsync({
         address: CONTRACT_ADDRESSES.CDP_VAULT,
         abi: CDP_VAULT_ABI,

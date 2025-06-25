@@ -117,4 +117,6 @@ node scripts/test_cdp_flow.js
 
 This should show successful CDP creation, borrowing, and repayment operations.
 
-node test_both_features.js
+cd /home/snb/Desktop/coinbase/CrediTrust && npx hardhat run deploy_real.js --network localhost
+
+cd /home/snb/Desktop/coinbase/CrediTrust && npx hardhat run test_cdp_creation.js --network localhost
