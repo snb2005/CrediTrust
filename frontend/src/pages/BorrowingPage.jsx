@@ -17,6 +17,7 @@ import {
 import toast from 'react-hot-toast';
 import { useCDPVault, useAccountInfo, useCreditScore, useTransactionStatus, useCDPInfo, useDebtTokenBalance, useCollateralTokenBalance, useTotalDebtWithInterest, useAccruedInterest } from '../hooks/useContracts';
 import { CONTRACT_ADDRESSES } from '../utils/wagmi';
+import IPFSLoanService from '../services/ipfsService';
 import {
   saveToLocalStorage,
   loadFromLocalStorage,
@@ -45,6 +46,8 @@ const BorrowingPage = () => {
   const [activeLoans, setActiveLoans] = useState([]);
   const [repayAmount, setRepayAmount] = useState('');
   const [additionalCollateral, setAdditionalCollateral] = useState('');
+  const [ipfsHash, setIpfsHash] = useState('');
+  const [isUploadingToIPFS, setIsUploadingToIPFS] = useState(false);
 
   // Debounced save function to prevent excessive localStorage writes
   const debouncedSave = useCallback(
@@ -131,6 +134,44 @@ const BorrowingPage = () => {
   const calculateInterestRate = () => {
     const selectedOption = loanOptions.find(option => option.term === loanTerm);
     return selectedOption ? selectedOption.interestRate : '12.0%';
+  };
+
+  // Function to create and upload loan agreement to IPFS
+  const createLoanAgreement = async (loanDetails) => {
+    try {
+      setIsUploadingToIPFS(true);
+      toast.loading('Creating loan agreement and storing on IPFS...', { id: 'ipfs' });
+
+      const agreementData = {
+        borrower: address,
+        assignedLender: loanDetails.assignedLender || 'TBD',
+        collateralAmount: loanDetails.collateralAmount,
+        debtAmount: loanDetails.debtAmount,
+        apr: loanDetails.apr || calculateInterestRate().replace('%', ''),
+        creditScore: loanDetails.creditScore || creditScore || '700',
+        transactionHash: loanDetails.transactionHash
+      };
+
+      const result = await IPFSLoanService.uploadLoanAgreement(agreementData);
+      
+      setIpfsHash(result.ipfsHash);
+      
+      toast.success(
+        <div>
+          <div>📄 Loan agreement stored on IPFS!</div>
+          <div className="text-xs mt-1">Hash: {result.ipfsHash.substring(0, 15)}...</div>
+        </div>,
+        { id: 'ipfs', duration: 4000 }
+      );
+
+      return result;
+    } catch (error) {
+      console.error('Failed to create loan agreement:', error);
+      toast.error('Failed to store agreement on IPFS', { id: 'ipfs' });
+      return null;
+    } finally {
+      setIsUploadingToIPFS(false);
+    }
   };
 
   const calculateLoanDetails = () => {
@@ -358,6 +399,21 @@ const BorrowingPage = () => {
         // Set the real transaction hash
         setTransactionHash(txHash);
 
+        // Create and store loan agreement on IPFS
+        const agreementData = {
+          collateralAmount: collateralAmount || 'N/A',
+          debtAmount: borrowAmount,
+          apr: calculateInterestRate().replace('%', ''),
+          creditScore: creditScore || '700',
+          transactionHash: txHash,
+          assignedLender: cdpInfo && cdpInfo[6] ? cdpInfo[6] : 'TBD'
+        };
+        
+        // Upload to IPFS in the background (don't wait for it)
+        createLoanAgreement(agreementData).catch(error => {
+          console.warn('IPFS upload failed but loan was successful:', error);
+        });
+
         toast.success(
           <div>
             <div>Loan of ${borrowAmount} approved and funded!</div>
@@ -417,6 +473,21 @@ const BorrowingPage = () => {
         // Generate a mock transaction hash
         const mockTxHash = '0x' + Math.random().toString(16).substr(2, 40);
         setTransactionHash(mockTxHash);
+
+        // Create and store loan agreement on IPFS even for demo
+        const agreementData = {
+          collateralAmount: collateralAmount,
+          debtAmount: borrowAmount,
+          apr: calculateInterestRate().replace('%', ''),
+          creditScore: creditScore || '700',
+          transactionHash: mockTxHash,
+          assignedLender: 'Demo Lender'
+        };
+        
+        // Upload to IPFS in the background
+        createLoanAgreement(agreementData).catch(error => {
+          console.warn('IPFS upload failed but demo loan was successful:', error);
+        });
 
         toast.success(
           <div>
@@ -612,6 +683,20 @@ const BorrowingPage = () => {
         refetchDebtBalance?.(),
         refetchCollateralBalance?.()
       ]);
+
+      // Check for existing IPFS agreements
+      try {
+        const userAgreements = IPFSLoanService.getUserAgreements(address);
+        if (userAgreements.length > 0) {
+          // Get the most recent agreement for this user
+          const latestAgreement = userAgreements[0];
+          setIpfsHash(latestAgreement.ipfsHash);
+          console.log('✅ Found existing IPFS agreement:', latestAgreement.ipfsHash);
+        }
+      } catch (error) {
+        console.warn('Could not load IPFS agreements:', error);
+      }
+
       console.log('✅ All data refreshed successfully');
     } catch (error) {
       console.error('Error refreshing data:', error);
@@ -621,8 +706,22 @@ const BorrowingPage = () => {
   useEffect(() => {
     if (isConnected) {
       getCreditScore();
+      
+      // Load existing IPFS agreements
+      if (address) {
+        try {
+          const userAgreements = IPFSLoanService.getUserAgreements(address);
+          if (userAgreements.length > 0) {
+            const latestAgreement = userAgreements[0];
+            setIpfsHash(latestAgreement.ipfsHash);
+            console.log('✅ Loaded existing IPFS agreement on page load:', latestAgreement.ipfsHash);
+          }
+        } catch (error) {
+          console.warn('Could not load IPFS agreements on page load:', error);
+        }
+      }
     }
-  }, [isConnected]);
+  }, [isConnected, address]);
 
   const loanDetails = calculateLoanDetails();
 
@@ -738,6 +837,37 @@ const BorrowingPage = () => {
                   {borrowingCapacity.warningLevel === 'warning' && (
                     <div className="mt-2 p-2 bg-yellow-500/10 border border-yellow-500/20 rounded text-yellow-400 text-xs">
                       ⚠️ Warning: Your CDP is approaching maximum capacity.
+                    </div>
+                  )}
+
+                  {/* IPFS Loan Agreement Section */}
+                  {ipfsHash && (
+                    <div className="mt-3 pt-3 border-t border-border-color">
+                      <div className="flex items-center gap-2 mb-2">
+                        <div className="w-3 h-3 bg-green-400 rounded-full"></div>
+                        <span className="text-sm font-medium text-green-400">Loan Agreement (IPFS)</span>
+                      </div>
+                      <div className="space-y-2 text-xs">
+                        <div className="flex justify-between items-center">
+                          <span className="text-muted">Hash:</span>
+                          <span className="text-foreground font-mono text-xs">
+                            {ipfsHash.substring(0, 15)}...
+                          </span>
+                        </div>
+                        <a
+                          href={`https://gateway.pinata.cloud/ipfs/${ipfsHash}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-1 px-2 py-1 bg-primary/10 hover:bg-primary/20 
+                                   text-primary rounded text-xs transition-colors"
+                        >
+                          📄 View Agreement
+                          <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} 
+                                  d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                          </svg>
+                        </a>
+                      </div>
                     </div>
                   )}
                 </div>
@@ -1029,6 +1159,50 @@ const BorrowingPage = () => {
                       View Detailed Management
                     </button>
                   </div>
+
+                  {/* IPFS Agreement Section */}
+                  {ipfsHash && (
+                    <div className="mt-4 p-3 bg-gradient-to-r from-purple-50/50 to-blue-50/50 rounded-lg border">
+                      <div className="flex items-center gap-2 mb-2">
+                        <FileText size={16} className="text-purple-500" />
+                        <h5 className="font-medium text-primary">Loan Agreement (IPFS)</h5>
+                        <span className="text-xs px-2 py-1 rounded-full bg-purple-100 text-purple-700">
+                          Pinata/IPFS
+                        </span>
+                      </div>
+                      <div className="text-sm space-y-1">
+                        <div className="flex items-center gap-2">
+                          <span className="text-muted">Hash:</span>
+                          <span className="font-mono text-xs text-secondary">{ipfsHash}</span>
+                        </div>
+                        <div className="flex gap-2">
+                          <button
+                            onClick={() => navigator.clipboard.writeText(ipfsHash)}
+                            className="text-xs text-purple-600 hover:underline"
+                          >
+                            Copy Hash
+                          </button>
+                          <span className="text-muted">•</span>
+                          <button
+                            onClick={() => window.open(`https://gateway.pinata.cloud/ipfs/${ipfsHash}`, '_blank')}
+                            className="text-xs text-purple-600 hover:underline flex items-center gap-1"
+                          >
+                            View on IPFS <ExternalLink size={10} />
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* IPFS Upload Status */}
+                  {isUploadingToIPFS && (
+                    <div className="mt-4 p-3 bg-yellow-50/50 rounded-lg border border-yellow-200">
+                      <div className="flex items-center gap-2">
+                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-yellow-600"></div>
+                        <span className="text-sm text-yellow-700">Storing loan agreement on IPFS...</span>
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
             ) : (
