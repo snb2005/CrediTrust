@@ -98,5 +98,14 @@ npm run dev
 - **Backend**: Flask, scikit-learn
 - **Libraries**: Ethers.js, Viem
 
-## License
-MIT
+## 📢 Disclosure
+
+This project was developed during the parallel timelines of the *Coinbase Agents in Action Hackathon* and *Chromion: A Chainlink Hackathon*.
+
+The **Chainlink-powered decentralized lending protocol** was enhanced with Coinbase technologies such as:
+
+- 🛡️ **CDP Wallet** – for secure, programmable wallet integration  
+- 💸 **x402pay** – for monetization of on-chain credit-scoring agents
+
+The project satisfies the unique requirements of **both hackathons**, and all development occurred **within their official timeframes**.
+
