@@ -21,7 +21,7 @@ const Header = () => {
           <div className="logo-icon">
             <Shield size={20} />
           </div>
-          TrustFi
+          CrediTrust
         </Link>
         
         <nav className="nav">

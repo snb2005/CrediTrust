@@ -71,7 +71,7 @@ const HomePage = () => {
           Decentralized Lending
         </h1>
         <p className="hero-subtitle">
-          TrustFi revolutionizes microcredit with autonomous risk assessment,
+          CrediTrust revolutionizes microcredit with autonomous risk assessment,
           smart contracts, and AI-powered credit scoring. Experience the next
           generation of decentralized finance.
         </p>
@@ -109,7 +109,7 @@ const HomePage = () => {
       <section>
         <div className="text-center mb-8">
           <h2 className="text-3xl font-bold text-primary mb-4">
-            Why Choose TrustFi?
+            Why Choose CrediTrust?
           </h2>
           <p className="text-lg text-secondary max-w-2xl mx-auto">
             Our platform combines cutting-edge technology with financial innovation
